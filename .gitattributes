@@ -1,0 +1,4 @@
+# Cards and fixtures must be byte-identical across platforms (see store.py),
+# so never let core.autocrlf rewrite them to CRLF on checkout.
+* text=auto eol=lf
+*.cmd text eol=crlf

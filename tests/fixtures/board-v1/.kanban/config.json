@@ -1,0 +1,8 @@
+{
+  "schema_version": 1,
+  "lease_ttl_seconds": 1800,
+  "heartbeat_stale_seconds": 600,
+  "base_branch": "main",
+  "port": 7777,
+  "a_field_this_tool_has_never_heard_of": "must survive the upgrade"
+}
