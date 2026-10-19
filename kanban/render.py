@@ -323,7 +323,6 @@ def card_view(board, card_id, card, body, now, config, dispatch_available):
         "starting": starting,
         "attempts": card.get("attempts") or 0,
         "max_attempts": config["max_attempts"],
-        "max_turns": budget.get("max_turns"),
         "spent_turns": stats.get("turns", budget.get("spent_turns") or 0),
         "cost_usd": stats.get("cost_usd"),
         "review_reason": review.get("reason"),

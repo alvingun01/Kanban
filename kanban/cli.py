@@ -644,7 +644,8 @@ def build_parser():
     sub.add_argument("--depends-on", action="append", metavar="ID")
     sub.add_argument("--parent", help="goal id, for planner-decomposed cards")
     sub.add_argument("--origin", choices=model.ORIGINS, default="human")
-    sub.add_argument("--max-turns", type=int, default=40)
+    # Recorded on the card but never enforced, so no longer advertised.
+    sub.add_argument("--max-turns", type=int, default=40, help=argparse.SUPPRESS)
     sub.add_argument(
         "--skip-planning",
         action="store_true",

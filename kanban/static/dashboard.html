@@ -312,15 +312,9 @@
           <textarea id="f-allow" placeholder="src/**"></textarea>
         </div>
       </div>
-      <div class="row">
-        <div class="field">
-          <label for="f-deps">Depends on <span class="sub">— card ids, one per line</span></label>
-          <textarea id="f-deps"></textarea>
-        </div>
-        <div class="field">
-          <label for="f-turns">Turn budget</label>
-          <input type="text" id="f-turns" value="40" inputmode="numeric">
-        </div>
+      <div class="field">
+        <label for="f-deps">Depends on <span class="sub">— card ids, one per line</span></label>
+        <textarea id="f-deps"></textarea>
       </div>
       <div class="field">
         <label>Skills this card needs</label>
@@ -455,7 +449,7 @@ function cardHTML(c) {
 
   const meta = [];
   if (c.owner) meta.push(esc(c.owner) + (c.claimed_age ? " · " + c.claimed_age : ""));
-  if (c.spent_turns) meta.push(c.spent_turns + (c.max_turns ? "/" + c.max_turns : "") + " turns");
+  if (c.spent_turns) meta.push(c.spent_turns + " turns");
   if (c.cost_usd) meta.push("$" + c.cost_usd.toFixed(3));
 
   // Buttons that need typing (reject, answer) live in the detail window.
@@ -632,7 +626,7 @@ function renderModal() {
   if (!c) return $("card-dlg").close();
   const col = lastData.columns.find(k => k.cards.includes(c));
   const meta = [col ? col.label : c.status, c.tier === "plan" ? "plan first" : "", c.read_only ? "read only" : "", c.owner || "",
-    c.spent_turns ? c.spent_turns + (c.max_turns ? " of " + c.max_turns : "") + " turns" : "",
+    c.spent_turns ? c.spent_turns + " turns" : "",
     c.cost_usd ? "$" + c.cost_usd.toFixed(2) + " list price" : "", c.branch || ""].filter(Boolean);
   $("cd-head").innerHTML = '<span class="cid">' + esc(c.id) + "</span> " + esc(c.title) +
     '<div class="badges">' + meta.map(m => '<span class="badge">' + esc(m) + "</span>").join("") + "</div>";
@@ -851,7 +845,6 @@ $("new-form").addEventListener("submit", async (e) => {
       scope_deny: $("f-deny").value,
       scope_allow: $("f-allow").value,
       depends_on: $("f-deps").value,
-      max_turns: parseInt($("f-turns").value, 10) || 40,
       skills,
       skip_planning: $("f-skip").checked,
       read_only: $("f-ro").checked,

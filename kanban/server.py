@@ -316,7 +316,6 @@ class Handler(BaseHTTPRequestHandler):
             scope_allow=_lines(payload.get("scope_allow")),
             scope_deny=_lines(payload.get("scope_deny")),
             skills=payload.get("skills") or [],
-            max_turns=int(payload.get("max_turns") or 40),
         )
         model.require_valid(card)
         card_id = board.create_card_file(card, "")
