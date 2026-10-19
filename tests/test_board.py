@@ -237,6 +237,14 @@ class TestStore(TempBoard):
         self.board.write_config(config)
         self.assertEqual(self.board.read_config()["something_new"], "keep")
 
+    def test_board_inside_a_card_worktree_defers_to_the_live_board(self):
+        # Regression: once the board is committed, wt/<id> holds a checkout of
+        # .kanban/ and cards/, and an agent there was editing that stale copy.
+        stale = os.path.join(self.root, "wt", "001")
+        store.Board.create(stale)
+        found = store.Board.find(os.path.join(stale, "src"))
+        self.assertEqual(found.root, self.board.root)
+
     def test_unreadable_card_does_not_break_the_listing(self):
         self.make("001")
         store.atomic_write(self.board.card_path("002"), "not a card at all\n")

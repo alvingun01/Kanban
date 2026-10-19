@@ -137,10 +137,23 @@ class Board:
 
     @classmethod
     def find(cls, start=None):
-        """Walk up from ``start`` looking for a ``.kanban`` directory."""
+        """Walk up from ``start`` looking for a ``.kanban`` directory.
+
+        A card worktree at ``<root>/wt/<id>`` is a checkout of the project, so
+        once the board is committed it carries its own stale ``.kanban/`` and
+        ``cards/``. Stopping there sent an agent's heartbeat, notes and submit
+        to that copy instead of the live board, so a board found directly
+        inside ``wt/`` defers to the one that owns the worktree.
+        """
         current = os.path.abspath(start or os.getcwd())
         while True:
             if os.path.isfile(os.path.join(current, BOARD_DIR, CONFIG_NAME)):
+                parent = os.path.dirname(current)
+                owner = os.path.dirname(parent)
+                if os.path.basename(parent) == WORKTREE_DIR and os.path.isfile(
+                    os.path.join(owner, BOARD_DIR, CONFIG_NAME)
+                ):
+                    return cls(owner)
                 return cls(current)
             parent = os.path.dirname(current)
             if parent == current:
