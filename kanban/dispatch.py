@@ -329,7 +329,8 @@ def dispatch(board, card_id):
         # Required: `--print` with stream-json refuses to start without it.
         # Omitting it made every spawned agent die on its first line.
         "--verbose",
-        "--include-partial-messages",
+        # No --include-partial-messages: it writes a line per token delta,
+        # and the dashboard only ever reads the final result event.
         "--permission-mode",
         mode,
         # The allowlist, not the mode, is what lets an agent work.

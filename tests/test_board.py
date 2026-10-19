@@ -1165,6 +1165,19 @@ class TestDispatchGuards(TempBoard):
         self.assertNotIn('"--bare"', source, "never --bare: it forces API billing")
 
 
+class TestRunStats(TempBoard):
+    def test_stats_follow_the_transcript_as_it_grows(self):
+        from kanban import render
+
+        path = self.board.run_path("001")
+        store.atomic_write(path, '{"type": "system"}\n')
+        self.assertEqual(render.read_run_stats(self.board, "001"), {})
+        with open(path, "a", encoding="utf-8") as handle:
+            handle.write('{"type": "result", "num_turns": 7, "result": "done"}\n')
+        stats = render.read_run_stats(self.board, "001")
+        self.assertEqual((stats["turns"], stats["result"]), (7, "done"))
+
+
 class TestReadOnly(TempBoard):
     def test_read_only_agent_cannot_edit_or_commit(self):
         from kanban import dispatch

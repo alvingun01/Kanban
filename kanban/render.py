@@ -43,11 +43,28 @@ def _age(timestamp, now):
     return "%dd" % (seconds // 86400)
 
 
+#: path -> ((size, mtime), stats). The dashboard polls every few seconds and
+#: used to re-parse every transcript on the board each time, Done cards too.
+_STATS_CACHE = {}
+
+
 def read_run_stats(board, card_id):
     """Pull turns and list-price cost from the agent's transcript, if any."""
     path = board.run_path(card_id)
-    if not os.path.isfile(path):
+    try:
+        info = os.stat(path)
+    except OSError:
         return {}
+    key = (info.st_size, info.st_mtime_ns)
+    cached = _STATS_CACHE.get(path)
+    if cached and cached[0] == key:
+        return dict(cached[1])
+    stats = _scan_transcript(path)
+    _STATS_CACHE[path] = (key, stats)
+    return dict(stats)
+
+
+def _scan_transcript(path):
     turns = None
     cost = None
     result = None
