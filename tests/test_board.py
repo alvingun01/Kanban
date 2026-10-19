@@ -226,6 +226,14 @@ class TestStore(TempBoard):
         self.make("002")
         self.assertEqual(self.board.next_id(), "003")
 
+    def test_next_id_never_reuses_a_deleted_cards_id(self):
+        # A reused id inherited the old card's branch and transcript.
+        self.make("001")
+        self.make("003")
+        self.assertEqual(self.board.next_id(), "004")
+        store.atomic_write(self.board.run_path("004"), "{}\n")  # deleted card
+        self.assertEqual(self.board.next_id(), "005")
+
     def test_duplicate_id_fails_loudly(self):
         self.make("001")
         with self.assertRaises(store.BoardError):

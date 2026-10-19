@@ -319,18 +319,22 @@ class Board:
             yield card_id, card, body
 
     def next_id(self):
-        """Lowest unused zero-padded id.
+        """One past the highest numeric id ever used here, zero-padded.
+
+        Not the lowest gap: a deleted card leaves its transcript and worktree
+        (and branch) behind, and a new card that reused the id inherited the
+        old card's branch history and showed its last agent report as its own.
 
         Collisions are still possible between two processes calling this at the
         same instant; the caller closes that window with an ``O_EXCL`` create.
         """
-        used = set(self.card_ids())
-        number = 1
-        while True:
-            candidate = "%03d" % number
-            if candidate not in used:
-                return candidate
-            number += 1
+        used = list(self.card_ids())
+        if os.path.isdir(self.runs_dir):
+            used += [name.split(".")[0] for name in os.listdir(self.runs_dir)]
+        if os.path.isdir(self.worktrees_dir):
+            used += os.listdir(self.worktrees_dir)
+        highest = max([int(name) for name in used if name.isdigit()] or [0])
+        return "%03d" % (highest + 1)
 
     def create_card_file(self, card, body):
         """Create a new card, failing loudly if the id is taken.
