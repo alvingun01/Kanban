@@ -8,6 +8,8 @@ all together. Nothing else in the codebase may assign to ``card["status"]``.
 Invariants 4 and 5 are enforced here too, via :data:`HUMAN_ONLY`.
 """
 
+import os
+
 from . import locks, model
 from .model import utcnow
 
@@ -182,9 +184,29 @@ def submit_plan(board, card_id, actor, plan_text):
 
 
 def submit_work(board, card_id, actor, detail=""):
-    """claimed -> needs_review with finished work."""
+    """claimed -> needs_review with finished work.
+
+    Refused while the card's worktree has uncommitted changes. Review reads
+    the branch, so uncommitted work was invisible: the dashboard said the
+    agent "changed nothing", offered Accept answer, and the work stayed
+    stranded in the worktree after the card was closed.
+    """
+    from . import worktree
+
     card, body = board.load(card_id)
     require_holder(card, card_id, actor)
+    tree = (card.get("artifacts") or {}).get("worktree")
+    tree = os.path.join(board.root, tree) if tree else None
+    if tree and os.path.isdir(tree):
+        pending = worktree.changed_paths(tree)
+        if pending:
+            raise TransitionError(
+                "card %s has uncommitted changes in %s:\n  %s\n"
+                "       Review only sees commits. Commit what belongs to the "
+                "work, delete or\n       restore the rest (gitignore build "
+                "output), then submit again."
+                % (card_id, card["artifacts"]["worktree"], "\n  ".join(pending[:20]))
+            )
     card["review"] = {"reason": "work", "submitted_at": utcnow()}
     return apply(
         board, card_id, card, body, "needs_review", actor, detail or "work"

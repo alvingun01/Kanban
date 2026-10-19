@@ -1045,6 +1045,18 @@ class TestScopeGuardInGit(IsolatedHome):
         store.atomic_write(os.path.join(self.tree, "notes.txt"), "fine\n")
         self.assertEqual(self._guard("git add -A && git commit -m x"), hooks.ALLOW)
 
+    def test_work_cannot_be_submitted_with_uncommitted_changes(self):
+        # Review reads the branch; uncommitted work looked like "changed
+        # nothing" and was stranded in the worktree after Accept.
+        store.atomic_write(os.path.join(self.tree, "work.txt"), "done\n")
+        with self.assertRaises(transitions.TransitionError) as caught:
+            transitions.submit_work(self.board, "001", self.agent)
+        self.assertIn("work.txt", str(caught.exception))
+        _git(self.tree, "add", "-A")
+        _git(self.tree, "commit", "-qm", "work")
+        transitions.submit_work(self.board, "001", self.agent)
+        self.assertEqual(self.board.load("001")[0]["status"], "needs_review")
+
     def test_review_flags_denied_paths_the_branch_contains(self):
         from kanban import render
 

@@ -40,7 +40,9 @@ Check `tier` in the claim output.
   the card to `tier: act` and puts it back in the queue. You may edit
   `spec.skills` on the card if planning revealed a skill the work will need.
 - `tier: act` -- the plan is approved. Do the work, commit on the card's branch,
-  then `kanban submit <id> --as-work`.
+  then `kanban submit <id> --as-work`. Commit *everything* that is part of the
+  work first: review only sees commits, so submit refuses while the worktree
+  has uncommitted changes.
 
 ## When you are unsure
 
