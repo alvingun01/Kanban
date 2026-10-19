@@ -571,6 +571,49 @@ class TestSubmitGuards(TempBoard):
                 os.environ["KANBAN_ACTOR"] = saved
 
 
+class TestDashboardOrigin(TempBoard):
+    def setUp(self):
+        super().setUp()
+        import threading
+
+        from kanban import server
+
+        self.server = server.DashboardServer(
+            ("127.0.0.1", 0), self.board, auto_dispatch=False
+        )
+        self.port = self.server.server_address[1]
+        threading.Thread(target=self.server.serve_forever, daemon=True).start()
+
+    def tearDown(self):
+        self.server.shutdown()
+        self.server.server_close()
+        super().tearDown()
+
+    def _get(self, host):
+        import http.client
+
+        conn = http.client.HTTPConnection("127.0.0.1", self.port, timeout=10)
+        try:
+            conn.request("GET", "/", headers={"Host": host})
+            response = conn.getresponse()
+            return response.status, response.read().decode("utf-8")
+        finally:
+            conn.close()
+
+    def test_a_rebound_hostname_gets_neither_page_nor_token(self):
+        # DNS rebinding: evil.example resolves to 127.0.0.1, so the page is
+        # same-origin with us and could read the CSRF token from our HTML.
+        status, text = self._get("evil.example:%d" % self.port)
+        self.assertEqual(status, 403)
+        self.assertNotIn(self.server.session.csrf, text)
+
+    def test_loopback_hosts_still_work(self):
+        for host in ("127.0.0.1:%d" % self.port, "localhost:%d" % self.port):
+            status, text = self._get(host)
+            self.assertEqual(status, 200, host)
+            self.assertIn(self.server.session.csrf, text)
+
+
 class TestAuditLog(TempBoard):
     def test_every_transition_appends_exactly_one_line(self):
         card_id = self.make("001", tier="act")

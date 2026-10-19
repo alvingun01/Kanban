@@ -90,6 +90,19 @@ class Handler(BaseHTTPRequestHandler):
                 return value
         return None
 
+    def _host_ok(self):
+        """Refuse any request not addressed to our own loopback origin.
+
+        Binding 127.0.0.1 is not enough on its own: a web page can point its
+        own hostname at 127.0.0.1 (DNS rebinding) and then be same-origin
+        with this server. It could read the CSRF token out of the page,
+        receive the session cookie, and approve work or queue a card whose
+        goal it wrote. The Host header is what gives that away.
+        """
+        port = self.server.server_address[1]
+        host = (self.headers.get("Host") or "").strip().lower()
+        return host in ("127.0.0.1:%d" % port, "localhost:%d" % port)
+
     def _authorised(self):
         """Both factors must match: the cookie proves the session, the header
         proves the request came from our own page."""
@@ -112,6 +125,8 @@ class Handler(BaseHTTPRequestHandler):
     # -- routes ---------------------------------------------------------
 
     def do_GET(self):
+        if not self._host_ok():
+            return self._json(403, {"error": "unexpected Host header"})
         path = self.path.split("?", 1)[0]
         if path in ("/", "/index.html"):
             return self._serve_page()
@@ -160,7 +175,7 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_POST(self):
         path = self.path.split("?", 1)[0]
-        if not self._authorised():
+        if not self._host_ok() or not self._authorised():
             return self._json(
                 403,
                 {

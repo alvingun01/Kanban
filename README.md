@@ -107,8 +107,11 @@ cannot tell you apart. The interface does instead:
   Another local page cannot read our HTML, so it cannot forge the header.
 - **Agents** act through the CLI, which has neither, so `promote`, `approve`,
   `reject` and `answer` are out of reach.
-- The server binds `127.0.0.1` only. Tokens live in memory and are never written
-  to disk.
+- The server binds `127.0.0.1` only, and refuses any request whose `Host` is not
+  `127.0.0.1` or `localhost` on its port. Without that, a web page could point
+  its own hostname at `127.0.0.1` (DNS rebinding), become same-origin with the
+  dashboard, and read the CSRF token out of the page. Tokens live in memory and
+  are never written to disk.
 
 `KANBAN_HUMAN=1` bypasses this, for tests and scripts. **It is the trust
 boundary** — never set it anywhere an agent can read it, and never in a skill or
