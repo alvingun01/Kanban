@@ -581,7 +581,8 @@ def cmd_doctor(args):
         _print("PRs        on submit, push to %s (%s), then %s" % (
             remote, re.sub(r"//[^/@]+@", "//", url),  # never print a token
             "open a PR with gh" if pr.gh_bin() else
-            "link GitHub's compare page (install gh to open PRs automatically)",
+            "link GitHub's compare page (install gh to open PRs automatically)"
+            if pr.github_slug(url) else "you open the PR by hand (not GitHub)",
         ))
     else:
         _print("PRs        off (no %r remote) -- approve just closes cards" % remote)
