@@ -1270,6 +1270,25 @@ class TestScaffold(IsolatedHome):
         self.assertIn("permissions", settings)
         self.assertIn("hooks", settings)
 
+    def test_gitignore_only_ignores_the_boards_own_directories(self):
+        # Regression: unanchored `runs/` and `board/` silently ignored any
+        # project folder with that name -- the spec's own src/board/ example.
+        if _git(self.root, "init", "-q").returncode != 0:
+            self.skipTest("git unavailable")
+        scaffold.init(self.root)
+        for path, ignored in (
+            ("runs/001.jsonl", True),
+            ("wt/001/a.txt", True),
+            ("cards/001.lock", True),
+            (".kanban/bin/kanban", True),
+            ("cards/001.md", False),
+            ("src/runs/a.py", False),
+            ("src/board/a.py", False),
+            ("src/wt/a.py", False),
+        ):
+            result = _git(self.root, "check-ignore", "-q", path)
+            self.assertEqual(result.returncode == 0, ignored, path)
+
     def test_scope_guard_covers_bash_and_powershell_commits(self):
         # Agents may commit from either shell; only Bash used to be guarded.
         scaffold.init(self.root)

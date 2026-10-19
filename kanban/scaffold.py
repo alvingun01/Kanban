@@ -39,12 +39,14 @@ def registry_path():
 
 GITIGNORE_BLOCK = """\
 # Runtime state: locks are machine-local, worktrees and transcripts are big,
-# the dashboard render is generated, and backups are local safety copies.
-cards/*.lock
-wt/
-runs/
-board/
-.kanban/backups/
+# backups are local safety copies, and the agent shim holds this machine's
+# paths. Anchored with a leading / so a project's own src/runs/ is not ignored.
+/cards/*.lock
+/cards/.*.tmp
+/wt/
+/runs/
+/.kanban/backups/
+/.kanban/bin/
 """
 
 CLAUDE_MD_BLOCK = """\
