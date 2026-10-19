@@ -967,6 +967,95 @@ class TestWorktreeLifecycle(unittest.TestCase):
         )
 
 
+def _git(root, *args):
+    return subprocess.run(
+        ["git"] + list(args), cwd=root, capture_output=True, text=True
+    )
+
+
+class TestScopeGuardInGit(IsolatedHome):
+    """The guard against what agents actually type, in a real repository."""
+
+    def setUp(self):
+        super().setUp()
+        self.root = tempfile.mkdtemp(prefix="kanban-guard-")
+        if _git(self.root, "init", "-q").returncode != 0:
+            self.skipTest("git unavailable")
+        _git(self.root, "config", "user.email", "t@example.com")
+        _git(self.root, "config", "user.name", "t")
+        store.atomic_write(os.path.join(self.root, "README.md"), "x\n")
+        _git(self.root, "add", "-A")
+        _git(self.root, "commit", "-qm", "init")
+        base = _git(self.root, "rev-parse", "--abbrev-ref", "HEAD").stdout.strip()
+
+        self.board = store.Board.create(self.root, base_branch=base)
+        self.agent = Actor("claude-code:001")
+        card = model.new_card("001", "a card", tier="act", scope_deny=[".env*"])
+        self.board.create_card_file(card, "")
+        transitions.promote(self.board, "001", Actor.as_human("tester@host"))
+        card, _ = lease.claim(self.board, "001", self.agent)
+        self.tree = os.path.join(self.root, card["artifacts"]["worktree"])
+
+    def tearDown(self):
+        from kanban import worktree
+
+        worktree.remove(self.board, "001", force=True)
+        shutil.rmtree(self.root, ignore_errors=True)
+        super().tearDown()
+
+    def _guard(self, command, cwd=None):
+        import io
+
+        event = {"cwd": cwd or self.tree, "tool_input": {"command": command}}
+        saved = sys.stdin, sys.stderr
+        sys.stdin, sys.stderr = io.StringIO(json.dumps(event)), io.StringIO()
+        try:
+            return hooks.scope_guard()
+        finally:
+            sys.stdin, sys.stderr = saved
+
+    def test_staging_and_committing_in_one_command_is_blocked(self):
+        # Regression: the hook runs before the command, so only checking the
+        # index let `git add -A && git commit` through with nothing staged.
+        store.atomic_write(os.path.join(self.tree, ".env.local"), "SECRET=1\n")
+        for command in ("git add -A && git commit -m x", "git commit -am x"):
+            self.assertEqual(self._guard(command), hooks.BLOCK, command)
+
+    def test_commit_issued_from_the_project_root_is_still_guarded(self):
+        # `cd wt/001 && git commit` from the root: the cwd names no card, so
+        # the guard falls back to the card dispatch put in the environment.
+        store.atomic_write(os.path.join(self.tree, ".env.local"), "SECRET=1\n")
+        command = "cd wt/001 && git add -A && git commit -m x"
+        self.assertEqual(self._guard(command, cwd=self.root), hooks.ALLOW)
+        os.environ[hooks.ENV_CARD] = "001"
+        try:
+            self.assertEqual(self._guard(command, cwd=self.root), hooks.BLOCK)
+        finally:
+            os.environ.pop(hooks.ENV_CARD, None)
+
+    def test_allowed_changes_still_commit(self):
+        store.atomic_write(os.path.join(self.tree, "notes.txt"), "fine\n")
+        self.assertEqual(self._guard("git add -A && git commit -m x"), hooks.ALLOW)
+
+    def test_review_flags_denied_paths_the_branch_contains(self):
+        from kanban import render
+
+        # A commit the hook never saw, e.g. from a shell it does not cover.
+        store.atomic_write(os.path.join(self.tree, ".env.local"), "SECRET=1\n")
+        _git(self.tree, "add", "-A")
+        _git(self.tree, "commit", "-qm", "sneaky")
+        transitions.submit_work(self.board, "001", self.agent)
+
+        card, body = self.board.load("001")
+        view = render.card_view(
+            self.board, "001", card, body, datetime.datetime.now(datetime.timezone.utc),
+            self.board.read_config(), True,
+        )
+        self.assertEqual([v["path"] for v in view["scope_violations"]], [".env.local"])
+        approve = next(a for a in view["actions"] if a["action"] == "approve")
+        self.assertIn("must not touch", approve["confirm"])
+
+
 class TestDispatchGuards(TempBoard):
     """The loop guards, which matter because a runaway burns the rate limit."""
 
@@ -1180,6 +1269,21 @@ class TestScaffold(IsolatedHome):
         )
         self.assertIn("permissions", settings)
         self.assertIn("hooks", settings)
+
+    def test_scope_guard_covers_bash_and_powershell_commits(self):
+        # Agents may commit from either shell; only Bash used to be guarded.
+        scaffold.init(self.root)
+        settings = json.loads(
+            store.read_text(os.path.join(self.root, ".claude", "settings.json"))
+        )
+        guards = {
+            group["matcher"]: group["hooks"][0]["if"]
+            for group in settings["hooks"]["PreToolUse"]
+        }
+        self.assertEqual(
+            guards,
+            {"Bash": "Bash(git commit *)", "PowerShell": "PowerShell(git commit *)"},
+        )
 
     def test_reinit_is_idempotent(self):
         scaffold.init(self.root)

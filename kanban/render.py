@@ -80,7 +80,7 @@ def read_run_stats(board, card_id):
 
 
 def actions_for(card, blocked, dispatch_available, has_changes=True,
-                starting=False):
+                starting=False, violations=()):
     """Which buttons this card may show. The only source of truth for the UI."""
     status = card.get("status")
     tier = card.get("tier")
@@ -191,18 +191,27 @@ def actions_for(card, blocked, dispatch_available, has_changes=True,
                     "disabled": False,
                 },
             ]
+        approve = {
+            "action": "approve",
+            "label": "Approve" if has_changes else "Accept answer",
+            "kind": "primary",
+            "hint": (
+                "Accept the change and move the card to Done."
+                if has_changes else
+                "Nothing was changed. Accept the agent's answer and close the card."
+            ),
+            "disabled": False,
+        }
+        if violations:
+            approve["confirm"] = (
+                "This branch changes %d path(s) the card must not touch: %s. "
+                "Approve anyway?" % (
+                    len(violations),
+                    ", ".join(item["path"] for item in violations[:5]),
+                )
+            )
         return [
-            {
-                "action": "approve",
-                "label": "Approve" if has_changes else "Accept answer",
-                "kind": "primary",
-                "hint": (
-                    "Accept the change and move the card to Done."
-                    if has_changes else
-                    "Nothing was changed. Accept the agent's answer and close the card."
-                ),
-                "disabled": False,
-            },
+            approve,
             {
                 "action": "reject",
                 "label": "Reject",
@@ -262,6 +271,17 @@ def card_view(board, card_id, card, body, now, config, dispatch_available):
 
     starting = dispatch.is_starting(card, now)
 
+    # The commit hook is the first line; this is the one that cannot be
+    # sidestepped, because it reads what the branch actually contains.
+    violations = []
+    allow, deny = scope.card_scope(card)
+    if diff and deny:
+        report = scope.check_paths(worktree.branch_paths(board, card_id), allow, deny)
+        violations = [
+            {"path": path, "pattern": pattern}
+            for path, pattern in report[scope.DENIED]
+        ]
+
     return {
         "id": card_id,
         "title": card.get("title") or "(untitled)",
@@ -299,11 +319,12 @@ def card_view(board, card_id, card, body, now, config, dispatch_available):
         "feedback": sections.get(model.SECTION_FEEDBACK, ""),
         "log": sections.get(model.SECTION_LOG, ""),
         "diffstat": diff,
+        "scope_violations": violations,
         "agent_result": stats.get("result", ""),
         "asking": asking(card, bool(diff)),
         "actions": actions_for(
             card, blocked, dispatch_available, has_changes=bool(diff),
-            starting=starting,
+            starting=starting, violations=violations,
         ),
     }
 

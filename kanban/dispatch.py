@@ -311,12 +311,13 @@ def dispatch(board, card_id):
     kanban_cmd, extra_env = kanban_invocation(board)
     prompt = build_prompt(card_id, card, kanban_cmd)
 
+    # Always start from the project root, even when the card already has a
+    # worktree. The scope-guard hook is registered in the root's
+    # .claude/settings.json; a session started inside wt/<id> reads that
+    # checkout's copy instead, which exists only if it was committed -- so a
+    # rejected card's second agent could run with no guard at all. The brief
+    # tells the agent to cd into the worktree that `kanban claim` prints.
     cwd = board.root
-    artifacts = card.get("artifacts") or {}
-    if artifacts.get("worktree"):
-        candidate = os.path.join(board.root, artifacts["worktree"])
-        if os.path.isdir(candidate):
-            cwd = candidate
 
     mode, tools = agent_permissions(card, config)
     args = [
@@ -343,6 +344,7 @@ def dispatch(board, card_id):
     env = dict(os.environ)
     env.update(extra_env)
     env["KANBAN_ACTOR"] = "claude-code:%s" % card_id
+    env["KANBAN_CARD"] = card_id  # lets the scope guard find the card from any cwd
     # Belt and braces: an agent must never inherit humanity from the server.
     env.pop("KANBAN_HUMAN", None)
 

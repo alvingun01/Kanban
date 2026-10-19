@@ -127,35 +127,72 @@ def remove(board, card_id, force=False):
     return True
 
 
+def _review_range(board, card_id):
+    """``base...card/<id>`` for review, or None when there is nothing to compare."""
+    root = board.root
+    if not is_repo(root):
+        return None
+    branch = board.branch_name(card_id)
+    if not branch_exists(root, branch):
+        return None
+    base = board.read_config().get("base_branch") or "HEAD"
+    if not branch_exists(root, base):
+        return None
+    return "%s...%s" % (base, branch)
+
+
 def diffstat(board, card_id):
     """Summarise a card branch against the base branch, for review.
 
     Returns "" when there is nothing to compare, so the dashboard can simply
     print whatever comes back.
     """
-    root = board.root
-    if not is_repo(root):
+    span = _review_range(board, card_id)
+    if not span:
         return ""
-    branch = board.branch_name(card_id)
-    if not branch_exists(root, branch):
-        return ""
-    base = board.read_config().get("base_branch") or "HEAD"
-    if not branch_exists(root, base):
-        return ""
-    result = _run(
-        ["diff", "--stat", "%s...%s" % (base, branch)], root, check=False
-    )
+    result = _run(["diff", "--stat", span], board.root, check=False)
     if result.returncode != 0:
         return ""
     return result.stdout.strip()
 
 
-def staged_paths(cwd):
-    """Paths staged for commit in ``cwd``. Used by the scope-guard hook."""
-    result = _run(["diff", "--cached", "--name-only"], cwd, check=False)
+def branch_paths(board, card_id):
+    """Every path the card branch changes against the base branch."""
+    span = _review_range(board, card_id)
+    if not span:
+        return []
+    result = _run(["diff", "--name-only", span], board.root, check=False)
     if result.returncode != 0:
         return []
     return [line.strip() for line in result.stdout.splitlines() if line.strip()]
+
+
+def changed_paths(cwd):
+    """Every path a commit run in ``cwd`` could pick up. For the scope guard.
+
+    Staged files alone were not enough: the hook fires *before* the command,
+    so ``git add -A && git commit`` and ``git commit -a`` had nothing staged
+    yet and sailed through. Porcelain status covers staged, unstaged and
+    untracked (not ignored) paths, relative to the repository root.
+    """
+    result = _run(
+        ["status", "--porcelain", "-z", "--untracked-files=all"], cwd, check=False
+    )
+    if result.returncode != 0:
+        return []
+    paths = []
+    entries = result.stdout.split("\0")
+    index = 0
+    while index < len(entries):
+        entry = entries[index]
+        index += 1
+        if len(entry) < 4:
+            continue
+        paths.append(entry[3:])
+        if entry[0] in "RC" and index < len(entries):
+            paths.append(entries[index])  # a rename also touches its source
+            index += 1
+    return paths
 
 
 def is_dirty(root):

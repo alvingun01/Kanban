@@ -94,7 +94,7 @@ properties it defends, and how:
 | A crashed agent releases its card | Leases have a TTL and a heartbeat. The sweeper reaps a lease only when it has **both** expired *and* gone quiet, then returns the card to Execute with an incident note. |
 | A card that keeps failing stops | After `max_attempts` (default 3) it is parked in Review instead of respawning an agent that keeps dying. |
 | Only you promote and only you merge | Those transitions exist only on the dashboard's write endpoints. See *Trust boundary*. |
-| Agents cannot commit denied paths | A `PreToolUse` hook on `git commit` checks staged files against the card's `scope_deny` and blocks the commit. |
+| Agents cannot commit denied paths | A `PreToolUse` hook on `git commit` (Bash and PowerShell) checks every changed file in the card's worktree against `scope_deny` and blocks the commit. Review checks the branch diff again. |
 | Every change is recorded | All status writes funnel through one function, which appends the audit line in the same breath. |
 
 ## Trust boundary
@@ -129,9 +129,18 @@ deny holds even under `bypassPermissions` or `--dangerously-skip-permissions`,
 and it fires for background subagents. That makes it real enforcement, not a
 suggestion.
 
+It checks staged, unstaged *and* untracked changes, not just the index: the hook
+runs before the command, so `git add -A && git commit` has nothing staged yet.
+Dispatched agents always start from the project root, where the hook is
+registered, and carry `KANBAN_CARD` so the guard finds their card even when they
+commit from the root with `cd wt/<id> && git commit`.
+
 Not covered: it guards `git commit`. An agent can still *write* a denied file
-locally — it simply cannot commit it. The card records every blocked attempt, so
-you see them at review time.
+locally — it just cannot commit anything while that change is in its worktree.
+The card records every blocked attempt. As a backstop that nothing can sidestep,
+the dashboard checks the branch's actual diff against `scope_deny`. A card that
+touches a denied path is flagged **touches denied paths**, and Approve asks you
+to confirm.
 
 ---
 

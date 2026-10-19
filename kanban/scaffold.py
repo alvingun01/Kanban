@@ -284,7 +284,7 @@ HOOK_STUB = '''\
 """Stub. The scope-guard logic lives in the installed kanban package, so this
 file never needs to change -- `kanban upgrade` regenerates it if the tool moves.
 
-Blocks a `git commit` whose staged files match the claimed card's scope_deny.
+Blocks a `git commit` while the worktree changes a path in the card's scope_deny.
 """
 import sys
 
@@ -386,13 +386,15 @@ def write_hook(root):
                 "hook by hand",
             }
 
-    entry = {
-        "type": "command",
-        # Permission-rule syntax; narrows the Bash matcher to commits only.
-        "if": "Bash(git commit *)",
-        "command": _python_exe(),
-        "args": ["${CLAUDE_PROJECT_DIR}/.claude/hooks/scope-guard.py"],
-    }
+    def entry(tool):
+        return {
+            "type": "command",
+            # Permission-rule syntax, checked per subcommand, so it also
+            # catches `git add -A && git commit`. One rule per tool.
+            "if": "%s(git commit *)" % tool,
+            "command": _python_exe(),
+            "args": ["${CLAUDE_PROJECT_DIR}/.claude/hooks/scope-guard.py"],
+        }
 
     hooks = settings.setdefault("hooks", {})
     pre = hooks.setdefault("PreToolUse", [])
@@ -421,7 +423,10 @@ def write_hook(root):
         for group in pre
         if not (isinstance(group, dict) and group.get("hooks") == [])
     ]
-    pre.append({"matcher": "Bash", "hooks": [entry]})
+    # Agents are allowed to commit from PowerShell as well as Bash; guarding
+    # only Bash left every PowerShell commit unchecked.
+    for tool in ("Bash", "PowerShell"):
+        pre.append({"matcher": tool, "hooks": [entry(tool)]})
 
     atomic_write(settings_path, json.dumps(settings, indent=2) + "\n")
     return {

@@ -440,6 +440,8 @@ function cardHTML(c) {
     badges.push('<span class="badge">plan first</span>');
   if (c.read_only) badges.push('<span class="badge">read only</span>');
   if (c.stale) badges.push('<span class="badge warn">heartbeat stale</span>');
+  if ((c.scope_violations || []).length)
+    badges.push('<span class="badge warn">touches denied paths</span>');
   if (c.starting) badges.push('<span class="badge live">agent starting…</span>');
   if (c.blocked_by.length)
     badges.push('<span class="badge warn">blocked: ' +
@@ -606,6 +608,10 @@ function modalHTML(c) {
     readOnlyHTML(c) + skillsHTML(c) + "</section>";
 
   const work = [];
+  if ((c.scope_violations || []).length)
+    work.push(field("Touches denied paths", "<ul>" + c.scope_violations.map(v =>
+      "<li><code>" + esc(v.path) + "</code> matches <code>" + esc(v.pattern) + "</code></li>").join("") +
+      "</ul>", { box: true }));
   if (!c.asking && c.agent_result) work.push(field("Latest agent report", fmt(c.agent_result), { box: true }));
   if (c.plan) work.push(field("Plan", fmt(c.plan), { box: true }));
   if (c.context) work.push(field("Notes from agents", entries(c.context), { box: true }));

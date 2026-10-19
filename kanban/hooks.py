@@ -14,8 +14,14 @@ Contract (verified against the hooks reference):
 * **exit 2 blocks** and the stderr message is shown to the model; exit 0 does
   not approve, it merely declines to object
 
+The check covers every path a commit could pick up -- staged, unstaged and
+untracked -- not only what is staged, because the hook runs before the command
+and ``git add -A && git commit`` has staged nothing yet. Commits that still slip
+past (another shell, ``git commit-tree``) are caught at review: the dashboard
+checks the branch diff against ``scope_deny`` too.
+
 A blocked commit does *not* move the card. The agent's best next step is
-usually to unstage the offending file and commit the rest, and forcing every
+usually to undo the offending change and commit the rest, and forcing every
 violation into review would strand the lease. The attempt is recorded on the
 card either way, so nothing is silent.
 """
@@ -29,6 +35,9 @@ from .model import utcnow
 
 ALLOW = 0
 BLOCK = 2
+
+#: Set by dispatch on every agent it starts; hooks inherit the agent's env.
+ENV_CARD = "KANBAN_CARD"
 
 
 def _read_event():
@@ -83,7 +92,12 @@ def scope_guard(argv=None):
         # Not a kanban project: none of our business.
         return ALLOW
 
+    # The cwd names the card when the agent has cd'd into its worktree. When
+    # it has not -- `cd wt/042 && git commit` from the project root -- the
+    # card dispatch started it on is in the environment instead.
     card_id = card_id_for_cwd(board, cwd)
+    if not card_id and os.environ.get(ENV_CARD) in board.card_ids():
+        card_id = os.environ[ENV_CARD]
     if not card_id:
         return ALLOW
 
@@ -96,11 +110,13 @@ def scope_guard(argv=None):
     if not deny and not allow:
         return ALLOW
 
-    staged = worktree.staged_paths(cwd)
-    if not staged:
+    tree = (card.get("artifacts") or {}).get("worktree")
+    tree = os.path.join(board.root, tree) if tree else cwd
+    changed = worktree.changed_paths(tree if os.path.isdir(tree) else cwd)
+    if not changed:
         return ALLOW
 
-    report = scope.check_paths(staged, allow, deny)
+    report = scope.check_paths(changed, allow, deny)
     denied = report[scope.DENIED]
     if not denied:
         return ALLOW
@@ -111,9 +127,11 @@ def scope_guard(argv=None):
     )
     message = (
         "BLOCKED by the kanban scope guard.\n\n"
-        "Card %s must not touch these staged paths:\n%s\n\n"
-        "Do not work around this. Either unstage those files and commit the "
-        "rest, or if the card genuinely needs them, stop and ask:\n"
+        "Card %s must not touch these paths, which are changed in your "
+        "worktree:\n%s\n\n"
+        "Do not work around this. Undo those changes (`git restore --staged "
+        "--worktree <path>`, or delete a new file) and commit the rest, or if "
+        "the card genuinely needs them, stop and ask:\n"
         "  kanban ask %s \"<why this card needs that path>\"\n"
         % (card_id, listed, card_id)
     )
