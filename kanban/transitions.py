@@ -138,9 +138,29 @@ def promote(board, card_id, actor, detail=""):
     return apply(board, card_id, card, body, "ready", actor, detail)
 
 
+def require_holder(card, card_id, actor):
+    """Refuse unless ``card`` is claimed and, for an agent, claimed by it.
+
+    ``ready -> needs_review`` is legal so the sweeper can park a crash-looping
+    card, which meant an agent could submit a card nobody had claimed straight
+    into Review -- or, with a mistyped id, submit someone else's.
+    """
+    if card.get("status") != "claimed":
+        raise TransitionError(
+            "card %s is %s, not claimed -- only the agent holding a card can "
+            "submit it" % (card_id, card.get("status"))
+        )
+    owner = (card.get("lease") or {}).get("owner")
+    if not actor.is_human and owner and owner != actor.name:
+        raise TransitionError(
+            "card %s is held by %s, not %s" % (card_id, owner, actor.name)
+        )
+
+
 def submit_question(board, card_id, actor, question):
     """claimed -> needs_review, asking the human something."""
     card, body = board.load(card_id)
+    require_holder(card, card_id, actor)
     card["review"] = {
         "reason": "question",
         "question": question,
@@ -154,6 +174,7 @@ def submit_question(board, card_id, actor, question):
 def submit_plan(board, card_id, actor, plan_text):
     """claimed -> needs_review with a plan for approval."""
     card, body = board.load(card_id)
+    require_holder(card, card_id, actor)
     if plan_text:
         body = model.set_section(body, model.SECTION_PLAN, plan_text)
     card["review"] = {"reason": "plan", "submitted_at": utcnow()}
@@ -163,6 +184,7 @@ def submit_plan(board, card_id, actor, plan_text):
 def submit_work(board, card_id, actor, detail=""):
     """claimed -> needs_review with finished work."""
     card, body = board.load(card_id)
+    require_holder(card, card_id, actor)
     card["review"] = {"reason": "work", "submitted_at": utcnow()}
     return apply(
         board, card_id, card, body, "needs_review", actor, detail or "work"

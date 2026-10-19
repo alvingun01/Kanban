@@ -531,6 +531,46 @@ class TestReviewGate(TempBoard):
 # Invariant 7: the card is its own audit log
 # ---------------------------------------------------------------------------
 
+class TestSubmitGuards(TempBoard):
+    def test_unclaimed_card_cannot_be_submitted_into_review(self):
+        # ready -> needs_review exists for parking, so without a holder check
+        # an agent could put a card nobody worked straight up for approval.
+        card_id = self.make("001", status="ready")
+        for verb, arg in (
+            (transitions.submit_work, None),
+            (transitions.submit_plan, "a plan"),
+            (transitions.submit_question, "why?"),
+        ):
+            with self.assertRaises(transitions.TransitionError):
+                verb(self.board, card_id, self.agent, *([arg] if arg else []))
+        self.assertEqual(self.board.load(card_id)[0]["status"], "ready")
+
+    def test_agent_cannot_submit_or_release_another_agents_card(self):
+        card_id = self.make("001", status="claimed")
+        other = Actor("claude-code:002")
+        with self.assertRaises(transitions.TransitionError):
+            transitions.submit_work(self.board, card_id, other)
+        with self.assertRaises(lease.ClaimRefused):
+            lease.release(self.board, card_id, other)
+        lease.release(self.board, card_id, self.you)  # a human still can
+
+    def test_agent_name_does_not_change_when_it_cds_into_the_worktree(self):
+        # Regression: the default name came from the cwd, so claiming from
+        # the root and heartbeating from wt/<id> looked like two agents.
+        saved, here = os.environ.pop("KANBAN_ACTOR", None), os.getcwd()
+        inside = os.path.join(self.root, "wt", "001")
+        os.makedirs(inside)
+        try:
+            os.chdir(self.root)
+            at_root = Actor.from_env("001").name
+            os.chdir(inside)
+            self.assertEqual(Actor.from_env("001").name, at_root)
+        finally:
+            os.chdir(here)
+            if saved is not None:
+                os.environ["KANBAN_ACTOR"] = saved
+
+
 class TestAuditLog(TempBoard):
     def test_every_transition_appends_exactly_one_line(self):
         card_id = self.make("001", tier="act")

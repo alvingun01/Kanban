@@ -160,6 +160,11 @@ def release(board, card_id, actor, detail="released"):
         raise ClaimRefused(
             "card %s is %s, not claimed" % (card_id, card.get("status"))
         )
+    owner = (card.get("lease") or {}).get("owner")
+    if not actor.is_human and owner and owner != actor.name:
+        raise ClaimRefused(
+            "card %s is held by %s, not %s" % (card_id, owner, actor.name)
+        )
     return transitions.apply(board, card_id, card, body, "ready", actor, detail)
 
 

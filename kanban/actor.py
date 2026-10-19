@@ -40,9 +40,18 @@ class Actor:
         )
 
     @classmethod
-    def from_env(cls):
-        """The CLI's actor: an agent unless ``KANBAN_HUMAN=1`` is set."""
-        name = os.environ.get(ENV_ACTOR) or default_agent_name()
+    def from_env(cls, card_id=None):
+        """The CLI's actor: an agent unless ``KANBAN_HUMAN=1`` is set.
+
+        Without ``KANBAN_ACTOR`` an agent is named after the card it is acting
+        on, the same name dispatch gives it. Naming it after the working
+        directory broke the brief's own loop: claim from the project root,
+        ``cd`` into the worktree, and the heartbeat came from a different name
+        and was refused.
+        """
+        name = os.environ.get(ENV_ACTOR) or (
+            "claude-code:%s" % card_id if card_id else default_agent_name()
+        )
         return cls(name, human=os.environ.get(ENV_HUMAN) == "1")
 
     @classmethod

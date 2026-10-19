@@ -43,7 +43,7 @@ def _board(args, check=True):
 
 
 def _actor(args):
-    return Actor.from_env()
+    return Actor.from_env(getattr(args, "id", None))
 
 
 def _print(text=""):
