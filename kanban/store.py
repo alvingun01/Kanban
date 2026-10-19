@@ -13,6 +13,7 @@ depend on.
 
 import json
 import os
+import re
 import shutil
 import tempfile
 import time
@@ -122,6 +123,22 @@ def _replace(source, target, attempts=10):
             time.sleep(0.02 * (attempt + 1))
 
 
+#: A card id becomes a file name, a directory and a git branch, so it is held
+#: to what is safe as all three. ``kanban new --id ../x`` used to write
+#: outside ``cards/``, and the dashboard would load any ``.md`` it was named.
+_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
+
+
+def check_id(card_id):
+    """Return ``card_id`` as a string, or raise BoardError if it is unsafe."""
+    text = str(card_id)
+    if not _ID_RE.match(text) or ".." in text:
+        raise BoardError(
+            "invalid card id %r -- use letters, digits, '-', '_' or '.'" % text
+        )
+    return text
+
+
 def read_text(path):
     with open(path, "r", encoding="utf-8") as handle:
         return handle.read()
@@ -203,19 +220,19 @@ class Board:
         return os.path.join(self.board_dir, BACKUPS_DIR)
 
     def card_path(self, card_id):
-        return os.path.join(self.cards_dir, "%s.md" % card_id)
+        return os.path.join(self.cards_dir, "%s.md" % check_id(card_id))
 
     def lock_path(self, card_id):
-        return os.path.join(self.cards_dir, "%s.lock" % card_id)
+        return os.path.join(self.cards_dir, "%s.lock" % check_id(card_id))
 
     def run_path(self, card_id):
-        return os.path.join(self.runs_dir, "%s.jsonl" % card_id)
+        return os.path.join(self.runs_dir, "%s.jsonl" % check_id(card_id))
 
     def worktree_path(self, card_id):
-        return os.path.join(self.worktrees_dir, str(card_id))
+        return os.path.join(self.worktrees_dir, check_id(card_id))
 
     def branch_name(self, card_id):
-        return "card/%s" % card_id
+        return "card/%s" % check_id(card_id)
 
     # -- config ---------------------------------------------------------
 

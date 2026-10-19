@@ -237,6 +237,15 @@ class TestStore(TempBoard):
         self.board.write_config(config)
         self.assertEqual(self.board.read_config()["something_new"], "keep")
 
+    def test_card_ids_cannot_escape_the_cards_directory(self):
+        for bad in ("../CLAUDE", "..", "a/b", "a\\b", "", "-rf", "x y"):
+            with self.assertRaises(store.BoardError, msg=bad):
+                self.board.create_card_file(model.new_card(bad, "evil"), "")
+        self.assertFalse(os.path.exists(os.path.join(self.root, "CLAUDE.md")))
+        with self.assertRaises(store.BoardError):
+            self.board.load("../../etc/notes")
+        self.make("card-7.b")  # ordinary ids are untouched
+
     def test_board_inside_a_card_worktree_defers_to_the_live_board(self):
         # Regression: once the board is committed, wt/<id> holds a checkout of
         # .kanban/ and cards/, and an agent there was editing that stale copy.
