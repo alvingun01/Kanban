@@ -1208,6 +1208,35 @@ class TestReadOnly(TempBoard):
         self.assertNotEqual(mode, "dontAsk")
         self.assertIn("Edit", tools)
 
+    def test_agents_cannot_push_merge_or_reconfigure_git(self):
+        from kanban import dispatch
+
+        args = dispatch.agent_command("claude", "go", {}, {}, self.board)
+        denied = args[args.index("--disallowedTools") + 1].split(",")
+        for shell in ("Bash", "PowerShell"):
+            for rule in ("git push*", "git merge*", "git config*", "git -C*"):
+                self.assertIn("%s(%s)" % (shell, rule), denied)
+        for needed in ("git commit", "git add", "git status", "git restore", "git rebase"):
+            self.assertFalse(
+                any(needed.startswith(rule[5:-2]) for rule in denied if rule.startswith("Bash(")),
+                "%s must stay available" % needed,
+            )
+
+    def test_an_agent_cannot_make_itself_human_inline(self):
+        # `KANBAN_HUMAN=1 kanban approve 001` is still just a `kanban` call to
+        # the allowlist; the KANBAN_CARD every agent carries gives it away.
+        saved = {key: os.environ.get(key) for key in ("KANBAN_HUMAN", "KANBAN_CARD")}
+        try:
+            os.environ["KANBAN_HUMAN"] = "1"
+            self.assertTrue(Actor.from_env().is_human)
+            os.environ["KANBAN_CARD"] = ""
+            self.assertFalse(Actor.from_env().is_human)
+        finally:
+            for key, value in saved.items():
+                os.environ.pop(key, None)
+                if value is not None:
+                    os.environ[key] = value
+
     def test_read_only_is_saved_on_the_card(self):
         self.board.create_card_file(model.new_card("009", "lookup", read_only=True), "")
         card, _ = self.board.load("009")

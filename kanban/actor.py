@@ -20,6 +20,7 @@ import socket
 
 ENV_ACTOR = "KANBAN_ACTOR"
 ENV_HUMAN = "KANBAN_HUMAN"
+ENV_CARD = "KANBAN_CARD"  # set by dispatch on every agent it starts
 
 
 class Actor:
@@ -52,7 +53,13 @@ class Actor:
         name = os.environ.get(ENV_ACTOR) or (
             "claude-code:%s" % card_id if card_id else default_agent_name()
         )
-        return cls(name, human=os.environ.get(ENV_HUMAN) == "1")
+        # Every dispatched agent carries KANBAN_CARD, and so does every command
+        # it runs. An agent typing `KANBAN_HUMAN=1 kanban approve` inline would
+        # otherwise pass the allowlist as a plain `kanban` call and approve
+        # its own work. Getting rid of KANBAN_CARD takes `unset` or `env -u`,
+        # which the allowlist does not include.
+        human = os.environ.get(ENV_HUMAN) == "1" and ENV_CARD not in os.environ
+        return cls(name, human=human)
 
     @classmethod
     def as_human(cls, name=None):

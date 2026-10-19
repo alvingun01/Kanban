@@ -31,13 +31,11 @@ import os
 import sys
 
 from . import model, scope, store, worktree
+from .actor import ENV_CARD  # hooks inherit the agent's environment
 from .model import utcnow
 
 ALLOW = 0
 BLOCK = 2
-
-#: Set by dispatch on every agent it starts; hooks inherit the agent's env.
-ENV_CARD = "KANBAN_CARD"
 
 
 def _read_event():

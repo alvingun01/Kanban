@@ -26,6 +26,7 @@ import subprocess
 import sys
 
 from . import transitions
+from .actor import ENV_CARD
 from .model import parse_ts, utcnow
 
 CLAUDE_EXTENSION_GLOB = os.path.join(
@@ -93,6 +94,43 @@ READ_ONLY_TOOLS = (
     "Read",
     "Glob",
     "Grep",
+)
+
+
+#: git subcommands no card agent may run, whatever the allowlist says. Deny
+#: rules beat allow rules and apply to each part of a compound command.
+#:
+#: The tool pushes the card branch itself at submit (see :mod:`pr`), so an
+#: agent never needs to push. The rest keep it on its own branch and out of
+#: the repository's configuration: merging or switching onto another branch,
+#: reaching the main checkout with ``-C``, and ``config``/``-c`` -- which, via
+#: aliases or ``core.pager``, would run any command at all.
+#:
+#: Guard rails for an agent following instructions, not a sandbox.
+_RISKY_GIT = (
+    "git push*",
+    "git pull*",
+    "git merge*",
+    "git checkout*",
+    "git switch*",
+    "git worktree*",
+    "git remote*",
+    "git submodule*",
+    "git config*",
+    "git update-ref*",
+    "git symbolic-ref*",
+    "git branch -d*",
+    "git branch -D*",
+    "git branch -m*",
+    "git branch -M*",
+    "git branch -f*",
+    "git -c*",
+    "git -C*",
+    "git --git-dir*",
+    "git --work-tree*",
+)
+DISALLOWED_TOOLS = tuple(
+    "%s(%s)" % (shell, rule) for shell in ("Bash", "PowerShell") for rule in _RISKY_GIT
 )
 
 
@@ -238,6 +276,35 @@ class DispatchError(Exception):
     """The agent could not be started."""
 
 
+def agent_command(binary, prompt, card, config, board):
+    """The full command line for one card agent."""
+    mode, tools = agent_permissions(card, config)
+    args = [
+        binary,
+        "-p",
+        prompt,
+        "--output-format",
+        "stream-json",
+        # Required: `--print` with stream-json refuses to start without it.
+        # Omitting it made every spawned agent die on its first line.
+        "--verbose",
+        # No --include-partial-messages: it writes a line per token delta,
+        # and the dashboard only ever reads the final result event.
+        "--permission-mode",
+        mode,
+        # The allowlist, not the mode, is what lets an agent work.
+        "--allowedTools",
+        ",".join(tools),
+        "--disallowedTools",
+        ",".join(DISALLOWED_TOOLS),
+        "--add-dir",
+        board.root,
+    ]
+    if config.get("model"):
+        args += ["--model", config["model"]]
+    return args
+
+
 def dispatch(board, card_id):
     """Start an agent on one card. Returns a description of what was started."""
     config = board.read_config()
@@ -319,33 +386,14 @@ def dispatch(board, card_id):
     # tells the agent to cd into the worktree that `kanban claim` prints.
     cwd = board.root
 
-    mode, tools = agent_permissions(card, config)
-    args = [
-        binary,
-        "-p",
-        prompt,
-        "--output-format",
-        "stream-json",
-        # Required: `--print` with stream-json refuses to start without it.
-        # Omitting it made every spawned agent die on its first line.
-        "--verbose",
-        # No --include-partial-messages: it writes a line per token delta,
-        # and the dashboard only ever reads the final result event.
-        "--permission-mode",
-        mode,
-        # The allowlist, not the mode, is what lets an agent work.
-        "--allowedTools",
-        ",".join(tools),
-        "--add-dir",
-        board.root,
-    ]
-    if config.get("model"):
-        args += ["--model", config["model"]]
+    args = agent_command(binary, prompt, card, config, board)
 
     env = dict(os.environ)
     env.update(extra_env)
     env["KANBAN_ACTOR"] = "claude-code:%s" % card_id
-    env["KANBAN_CARD"] = card_id  # lets the scope guard find the card from any cwd
+    # Lets the scope guard find the card from any cwd, and marks every command
+    # the agent runs as an agent's, KANBAN_HUMAN or not (see Actor.from_env).
+    env[ENV_CARD] = card_id
     # Belt and braces: an agent must never inherit humanity from the server.
     env.pop("KANBAN_HUMAN", None)
 

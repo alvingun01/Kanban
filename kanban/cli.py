@@ -562,6 +562,10 @@ def cmd_doctor(args):
         config.get("extra_allowed_tools") or []
     )
     _print("agents may %s" % ", ".join(allowed))
+    _print("but never  %s" % ", ".join(
+        rule[len("Bash("):-1] for rule in dispatch.DISALLOWED_TOOLS
+        if rule.startswith("Bash(")
+    ))
     _print("limits     %s concurrent, %s attempts, lease %ss"
            % (config.get("max_concurrent_agents"), config.get("max_attempts"),
               config.get("lease_ttl_seconds")))

@@ -61,6 +61,14 @@ If a path is denied, **do not work around it** -- not by editing the card, not b
 finding another route to the same file. Run `kanban ask` and explain why you need
 it. A commit hook also blocks denied paths, so proceeding will simply fail.
 
+## Git: stay on your branch
+
+Commit as often as you like on the card's branch. Do **not** push, pull,
+merge, switch branches, or touch git config, remotes or worktrees -- those are
+switched off for you; publishing the branch is the board's job. To discard a change use `git restore <path>`
+(not `git checkout`). To catch up with the base branch, `git fetch` and
+`git rebase`.
+
 ## What you may not do
 
 Four transitions are human-only, and they happen in the dashboard:
