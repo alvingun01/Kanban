@@ -67,12 +67,37 @@ From **Review**, a card is one of three things:
 | The agent says | You get | Approving means |
 |---|---|---|
 | here is my plan | Approve plan / Reject | back to Execute as `tier: act` |
-| here is the work | Approve / Reject | **Done** — the change has landed |
+| here is the work (a pull request) | Open PR, merge it on GitHub, then Approve / Reject | **Done** — the change has landed |
 | I have a question | an answer box | back to Execute with your answer |
 
 Rejecting always returns the card to Execute with your feedback appended, and
 **keeps the worktree and branch** — review feedback usually means "fix this",
 not "start over".
+
+## Pull requests
+
+Finished work leaves the board as a pull request. When an agent runs
+`kanban submit <id> --as-work`, **the tool** pushes `card/<id>` to the board's
+`remote` (default `origin`) and opens a PR with the [GitHub CLI](https://cli.github.com/)
+(`winget install GitHub.cli`, then `gh auth login` once). Agents themselves may
+not push. You review and merge the PR on GitHub, then click **Approve** on the
+dashboard to move the card to Done.
+
+- **With `gh`:** Approve asks GitHub first, and refuses while the PR is still
+  open. "Done" therefore means merged.
+- **Without `gh`:** the branch is still pushed, and the card's **Open a PR** link
+  goes to GitHub's compare page, so the PR is one click. Nobody can check the
+  merge, so Approve asks you to confirm instead.
+- **A rejected card** goes back to the same branch. The next agent's submit
+  pushes again and updates the same PR.
+- **New card branches start from `origin/<base_branch>`**, fetched at claim
+  time. PRs merge there, so a card whose `depends_on` was just merged starts
+  with that work in place.
+
+Anything that goes wrong (offline, no permission to push, `gh` not logged in) is
+written to the card's notes and never blocks the submit. Set `"remote": null` in
+`.kanban/config.json` to keep a board entirely local. Approve then just closes
+the card, and merging `card/<id>` is up to you.
 
 ## What agents write back
 
@@ -93,7 +118,7 @@ properties it defends, and how:
 | Two agents never work one card | `O_EXCL` creation of `cards/<id>.lock`. One syscall decides the race. Verified with 20 processes racing: exactly one wins. |
 | A crashed agent releases its card | Leases have a TTL and a heartbeat. The sweeper reaps a lease only when it has **both** expired *and* gone quiet, then returns the card to Execute with an incident note. |
 | A card that keeps failing stops | After `max_attempts` (default 3) it is parked in Review instead of respawning an agent that keeps dying. |
-| Only you promote and only you merge | Those transitions exist only on the dashboard's write endpoints. See *Trust boundary*. |
+| Only you promote and only you merge | Those transitions exist only on the dashboard's write endpoints. See *Trust boundary*. Agents may not push or merge; their work arrives as a PR that you merge. |
 | Agents cannot commit denied paths | A `PreToolUse` hook on `git commit` (Bash and PowerShell) checks every changed file in the card's worktree against `scope_deny` and blocks the commit. Review checks the branch diff again. |
 | Every change is recorded | All status writes funnel through one function, which appends the audit line in the same breath. |
 
@@ -115,7 +140,9 @@ cannot tell you apart. The interface does instead:
 
 `KANBAN_HUMAN=1` bypasses this, for tests and scripts. **It is the trust
 boundary** — never set it anywhere an agent can read it, and never in a skill or
-a checked-in settings file. `kanban doctor` warns if it is set.
+a checked-in settings file. `kanban doctor` warns if it is set. It is also
+ignored whenever `KANBAN_CARD` is present. Dispatch sets that on every agent, so
+an agent typing `KANBAN_HUMAN=1 kanban approve` inline still acts as an agent.
 
 Be clear-eyed about what this buys: it reliably stops an agent that is following
 instructions, and it fails closed. It would not stop an agent that went looking
@@ -180,6 +207,21 @@ Skill   Read   Edit   Write   Glob   Grep
 
 `PowerShell(...)` matters on Windows, where agents often pick PowerShell over
 Bash; `Skill` lets an agent invoke the skills a card lists.
+
+Some git is then taken away again with `--disallowedTools`, in both shells.
+Deny rules beat the allowlist and apply to every part of a compound command:
+
+```
+git push / pull / merge / checkout / switch / worktree / remote / submodule
+git config / update-ref / symbolic-ref    git branch -d/-D/-m/-M/-f
+git -c / -C / --git-dir / --work-tree
+```
+
+That keeps an agent on its own branch. It can't merge into the base branch, can't
+publish (the tool pushes at submit), and can't use `git config` or `-c`, whose
+aliases would run any command. Commit, add, diff, log, status, restore, stash,
+fetch and rebase all still work. These are guard rails for an agent following
+its brief, not a sandbox.
 
 That list, not the permission mode, is what lets an agent work. Two things
 learned by testing rather than from the docs:

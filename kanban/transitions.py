@@ -207,6 +207,18 @@ def submit_work(board, card_id, actor, detail=""):
                 "output), then submit again."
                 % (card_id, card["artifacts"]["worktree"], "\n  ".join(pending[:20]))
             )
+    # Work that changed something leaves as a pull request. The tool pushes,
+    # not the agent: agents are denied `git push` (see dispatch).
+    if tree and worktree.branch_paths(board, card_id):
+        from . import pr
+
+        url, note = pr.publish(board, card_id, card)
+        if url:
+            card["artifacts"]["pr"] = url
+        if note:
+            body = model.append_to_section(
+                body, model.SECTION_CONTEXT, "- %s  pull request: %s" % (utcnow(), note)
+            )
     card["review"] = {"reason": "work", "submitted_at": utcnow()}
     return apply(
         board, card_id, card, body, "needs_review", actor, detail or "work"
@@ -246,6 +258,17 @@ def approve(board, card_id, actor, detail=""):
         )
 
     if reason == "work":
+        from . import pr
+
+        # "Done" means the change has landed. When GitHub can be asked, ask.
+        url = (card.get("artifacts") or {}).get("pr")
+        merged = pr.state(board, url)
+        if merged and merged != "MERGED":
+            raise TransitionError(
+                "the pull request for card %s is %s, not merged:\n       %s\n"
+                "       Merge it on GitHub, then approve. To send the work back "
+                "instead, reject it." % (card_id, merged.lower(), url)
+            )
         card["review"] = None
         result = apply(
             board, card_id, card, body, "merged", actor, detail or "approved"

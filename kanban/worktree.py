@@ -15,19 +15,35 @@ import os
 import subprocess
 
 
+#: Seconds a fetch or push may take before it is abandoned.
+NETWORK_TIMEOUT = 120
+
+
 class GitError(Exception):
     """A git command failed."""
 
 
-def _run(args, cwd, check=True):
-    result = subprocess.run(
-        ["git"] + args,
-        cwd=cwd,
-        capture_output=True,
-        text=True,
-        encoding="utf-8",
-        errors="replace",
-    )
+def _run(args, cwd, check=True, network=False):
+    extra = {}
+    if network:
+        # Never wait on a credential prompt nobody can answer; agents and the
+        # dashboard both run without a terminal.
+        extra = {
+            "env": dict(os.environ, GIT_TERMINAL_PROMPT="0"),
+            "timeout": NETWORK_TIMEOUT,
+        }
+    try:
+        result = subprocess.run(
+            ["git"] + args,
+            cwd=cwd,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            **extra
+        )
+    except subprocess.TimeoutExpired:
+        raise GitError("git %s timed out" % " ".join(args))
     if check and result.returncode != 0:
         raise GitError(
             "git %s failed: %s"
@@ -52,6 +68,58 @@ def branch_exists(root, branch):
         check=False,
     )
     return result.returncode == 0
+
+
+def _ref_exists(root, ref):
+    return _run(["show-ref", "--verify", "--quiet", ref], root, check=False).returncode == 0
+
+
+def remote_url(root, remote):
+    """The URL of ``remote``, or None if the repo has no such remote."""
+    if not remote or not is_repo(root):
+        return None
+    result = _run(["remote", "get-url", remote], root, check=False)
+    if result.returncode != 0:
+        return None
+    return result.stdout.strip() or None
+
+
+def fetch(root, remote, branch):
+    """Refresh ``remote/branch``. False (not an error) when offline."""
+    try:
+        return _run(["fetch", "--quiet", remote, branch], root, check=False,
+                    network=True).returncode == 0
+    except GitError:
+        return False
+
+
+def push(root, remote, branch):
+    """Publish a card branch. Raises GitError.
+
+    ``--force-with-lease`` because an agent may rebase its own branch onto a
+    newer base; the lease still refuses to overwrite commits someone else
+    pushed to it that this repo has not seen.
+    """
+    _run(["push", "--quiet", "--force-with-lease", remote, branch], root,
+         network=True)
+
+
+def base_ref(board):
+    """The ref card branches start from and are reviewed against, or None.
+
+    With a remote, that is the remote's copy of the base branch: pull requests
+    merge there, so a card that depends on another starts from a base that
+    already holds the other card's work.
+    """
+    root = board.root
+    config = board.read_config()
+    base = config.get("base_branch") or "main"
+    remote = config.get("remote")
+    if remote and _ref_exists(root, "refs/remotes/%s/%s" % (remote, base)):
+        return "%s/%s" % (remote, base)
+    if branch_exists(root, base):
+        return base
+    return None
 
 
 def has_commits(root):
@@ -103,10 +171,13 @@ def ensure(board, card_id):
         # Rejected card coming back round: keep the branch and its history.
         _run(["worktree", "add", path, branch], root)
     else:
-        base = board.read_config().get("base_branch") or "HEAD"
-        if not branch_exists(root, base):
-            base = "HEAD"
-        _run(["worktree", "add", path, "-b", branch, base], root)
+        config = board.read_config()
+        if remote_url(root, config.get("remote")):
+            fetch(root, config["remote"], config.get("base_branch") or "main")
+        # --no-track: starting from origin/<base> must not make the card
+        # branch track the base branch, or a bare `git push` would aim at it.
+        _run(["worktree", "add", "--no-track", path, "-b", branch,
+              base_ref(board) or "HEAD"], root)
     return path, branch
 
 
@@ -135,8 +206,8 @@ def _review_range(board, card_id):
     branch = board.branch_name(card_id)
     if not branch_exists(root, branch):
         return None
-    base = board.read_config().get("base_branch") or "HEAD"
-    if not branch_exists(root, base):
+    base = base_ref(board)
+    if not base:
         return None
     return "%s...%s" % (base, branch)
 

@@ -33,6 +33,10 @@ DEFAULT_CONFIG = {
     "lease_ttl_seconds": 1800,
     "heartbeat_stale_seconds": 600,
     "base_branch": "main",
+    # Where finished card branches are pushed and opened as pull requests
+    # (see pr.py), and what new card branches start from. null, or a repo
+    # with no such remote, keeps the board local: approve just closes cards.
+    "remote": "origin",
     "port": 7777,
     "max_concurrent_agents": 2,
     "max_attempts": 3,

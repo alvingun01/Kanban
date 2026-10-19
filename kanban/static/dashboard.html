@@ -81,6 +81,7 @@
     color: var(--ink); padding: 6px 12px; border-radius: 8px;
     transition: background .12s, border-color .12s, transform .05s;
   }
+  a.btn { display: inline-block; text-decoration: none; font: inherit; }
   .btn:hover { background: var(--line); }
   .btn:active { transform: translateY(1px); }
   .btn.primary { background: var(--accent); border-color: var(--accent);
@@ -403,6 +404,12 @@ function actionButton(c, a) {
     '" data-action="' + esc(a.action) + '"' + ask + disabled + title + '>' + esc(a.label) + '</button>';
 }
 
+/* The card's pull request; the server only ever sends https URLs here. */
+function prLink(c) {
+  return '<a class="btn" href="' + esc(c.pr) + '" target="_blank" rel="noopener noreferrer">' +
+    (c.pr.includes("/pull/") ? "Open PR" : "Open a PR") + "</a>";
+}
+
 /* The specific question a Review card puts to the human. */
 function askTitle(c) {
   if (c.review_reason === "question") return "The agent asks:";
@@ -453,7 +460,8 @@ function cardHTML(c) {
   if (c.cost_usd) meta.push("$" + c.cost_usd.toFixed(3));
 
   // Buttons that need typing (reject, answer) live in the detail window.
-  const quick = (c.actions || []).filter(a => !a.needs_text).map(a => actionButton(c, a)).join("");
+  const quick = (c.pr && c.status === "needs_review" ? prLink(c) : "") +
+    (c.actions || []).filter(a => !a.needs_text).map(a => actionButton(c, a)).join("");
   const typed = (c.actions || []).some(a => a.needs_text);
 
   return '<div class="card' + (c.stale ? " stale" : "") + '" tabindex="0" data-card-id="' +
@@ -602,6 +610,7 @@ function modalHTML(c) {
     readOnlyHTML(c) + skillsHTML(c) + "</section>";
 
   const work = [];
+  if (c.pr) work.push(field("Pull request", prLink(c) + ' <span class="hint">' + esc(c.pr) + "</span>"));
   if ((c.scope_violations || []).length)
     work.push(field("Touches denied paths", "<ul>" + c.scope_violations.map(v =>
       "<li><code>" + esc(v.path) + "</code> matches <code>" + esc(v.pattern) + "</code></li>").join("") +

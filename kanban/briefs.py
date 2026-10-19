@@ -65,7 +65,8 @@ it. A commit hook also blocks denied paths, so proceeding will simply fail.
 
 Commit as often as you like on the card's branch. Do **not** push, pull,
 merge, switch branches, or touch git config, remotes or worktrees -- those are
-switched off for you; publishing the branch is the board's job. To discard a change use `git restore <path>`
+switched off for you. `kanban submit <id> --as-work` pushes your branch and
+opens the pull request itself, and the human merges it. To discard a change use `git restore <path>`
 (not `git checkout`). To catch up with the base branch, `git fetch` and
 `git rebase`.
 

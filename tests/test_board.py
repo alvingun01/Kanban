@@ -1076,6 +1076,122 @@ class TestScopeGuardInGit(IsolatedHome):
         self.assertIn("must not touch", approve["confirm"])
 
 
+class TestPullRequests(IsolatedHome):
+    """Finished work leaves as a PR; Done waits for it to be merged."""
+
+    def setUp(self):
+        super().setUp()
+        from kanban import pr
+
+        self.pr = pr
+        self.top = tempfile.mkdtemp(prefix="kanban-pr-")
+        self.origin = os.path.join(self.top, "origin.git")
+        self.root = os.path.join(self.top, "project")
+        if _git(self.top, "init", "-q", "--bare", self.origin).returncode != 0:
+            self.skipTest("git unavailable")
+        _git(self.top, "init", "-q", self.root)
+        for args in (("config", "user.email", "t@example.com"), ("config", "user.name", "t")):
+            _git(self.root, *args)
+        store.atomic_write(os.path.join(self.root, "README.md"), "x\n")
+        _git(self.root, "add", "-A")
+        _git(self.root, "commit", "-qm", "init")
+        self.base = _git(self.root, "rev-parse", "--abbrev-ref", "HEAD").stdout.strip()
+        _git(self.root, "remote", "add", "origin", self.origin)
+        _git(self.root, "push", "-q", "origin", self.base)
+
+        self.board = store.Board.create(self.root, base_branch=self.base)
+        self.you = Actor.as_human("tester@host")
+        self.agent = Actor("claude-code:001")
+        self.board.create_card_file(model.new_card("001", "a card", tier="act"), "")
+        transitions.promote(self.board, "001", self.you)
+        self._saved = (pr.gh_bin, pr._gh)
+        pr.gh_bin = lambda: None  # deterministic: never the real gh
+
+    def tearDown(self):
+        from kanban import worktree
+
+        self.pr.gh_bin, self.pr._gh = self._saved
+        worktree.remove(self.board, "001", force=True)
+        shutil.rmtree(self.top, ignore_errors=True)
+        super().tearDown()
+
+    def _work(self):
+        card, _ = lease.claim(self.board, "001", self.agent)
+        tree = os.path.join(self.root, card["artifacts"]["worktree"])
+        store.atomic_write(os.path.join(tree, "work.txt"), "done\n")
+        _git(tree, "add", "-A")
+        _git(tree, "commit", "-qm", "work")
+        return tree
+
+    def _fake_gh(self, states):
+        """Stand in for gh: no open PR yet, create returns #7, view walks `states`."""
+        def fake(gh, root, args):
+            if args[:2] == ["pr", "list"]:
+                return True, "[]", ""
+            if args[:2] == ["pr", "create"]:
+                return True, "https://github.com/o/r/pull/7\n", ""
+            return True, json.dumps({"state": states.pop(0)}), ""
+        self.pr.gh_bin = lambda: "gh"
+        self.pr._gh = fake
+
+    def test_github_remote_urls_are_recognised(self):
+        for url in ("https://github.com/o/r.git", "https://github.com/o/r",
+                    "git@github.com:o/r.git", "ssh://git@github.com/o/r.git"):
+            self.assertEqual(self.pr.github_slug(url), "o/r", url)
+        self.assertIsNone(self.pr.github_slug(self.origin))
+
+    def test_new_cards_start_from_what_the_remote_has_merged(self):
+        # A dependency merged as a PR lands on origin, not on the local base.
+        other = os.path.join(self.top, "other")
+        _git(self.top, "clone", "-q", self.origin, other)
+        for args in (("config", "user.email", "t@example.com"), ("config", "user.name", "t")):
+            _git(other, *args)
+        store.atomic_write(os.path.join(other, "merged.txt"), "from a PR\n")
+        _git(other, "add", "-A")
+        _git(other, "commit", "-qm", "merged PR")
+        _git(other, "push", "-q", "origin", "HEAD:%s" % self.base)
+
+        tree = self._work()
+        self.assertTrue(os.path.isfile(os.path.join(tree, "merged.txt")))
+
+    def test_submit_pushes_the_branch_even_without_gh(self):
+        self._work()
+        transitions.submit_work(self.board, "001", self.agent)
+        remote = _git(self.root, "ls-remote", "origin", "card/001").stdout
+        self.assertIn("refs/heads/card/001", remote)
+        card, body = self.board.load("001")
+        self.assertIsNone(card["artifacts"]["pr"])  # not GitHub: nothing to link
+        self.assertIn("open a pull request there", model.get_section(body, "Context"))
+
+    def test_approve_waits_for_the_pr_to_be_merged(self):
+        self._fake_gh(["OPEN", "MERGED"])
+        self._work()
+        transitions.submit_work(self.board, "001", self.agent)
+        self.assertEqual(
+            self.board.load("001")[0]["artifacts"]["pr"], "https://github.com/o/r/pull/7"
+        )
+        with self.assertRaises(transitions.TransitionError) as caught:
+            transitions.approve(self.board, "001", self.you)
+        self.assertIn("not merged", str(caught.exception))
+        transitions.approve(self.board, "001", self.you)
+        self.assertEqual(self.board.load("001")[0]["status"], "merged")
+
+    def test_unverifiable_pr_makes_approve_ask_first(self):
+        from kanban import render
+
+        self._work()
+        transitions.submit_work(self.board, "001", self.agent)
+        card, body = self.board.load("001")
+        card["artifacts"]["pr"] = "https://github.com/o/r/compare/main...card/001?expand=1"
+        view = render.card_view(
+            self.board, "001", card, body, datetime.datetime.now(datetime.timezone.utc),
+            self.board.read_config(), True,
+        )
+        approve = next(a for a in view["actions"] if a["action"] == "approve")
+        self.assertIn("Have you merged", approve["confirm"])
+        self.assertIn("pull request", view["asking"])
+
+
 class TestDispatchGuards(TempBoard):
     """The loop guards, which matter because a runaway burns the rate limit."""
 

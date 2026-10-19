@@ -8,7 +8,7 @@ order. It takes about ten minutes.
 
 ---
 
-## Before you start: three things to check
+## Before you start: three things to check (and one optional)
 
 ### 1. Open PowerShell
 
@@ -54,6 +54,21 @@ the board finds it by itself.
 
 You do **not** need to install anything extra, and you do **not** need an API key.
 The board uses your normal subscription.
+
+### 4. Optional: the GitHub CLI
+
+If your project is on GitHub, finished work arrives as a **pull request** for
+you to merge. The board opens those for you if the GitHub CLI is installed.
+Copy these two lines into PowerShell, one at a time, and follow what the second
+one asks:
+
+```
+winget install GitHub.cli
+gh auth login
+```
+
+Without it everything still works. Each finished card gets an **Open a PR**
+button instead, which takes you to GitHub with the pull request ready to create.
 
 ---
 
@@ -196,7 +211,7 @@ line what it is waiting for — it will be one of these:
 | What you see | What to do |
 |---|---|
 | A plan | **Approve plan** to let it go ahead, or **Reject** with a note saying what to change |
-| Finished work that changed files | **Approve** to accept it, or **Reject** with a note |
+| Finished work that changed files | Click **Open PR**, look at the changes on GitHub and merge them there, then click **Approve** here. Or **Reject** with a note |
 | Finished work that changed nothing (a lookup or question) | Read its report in **Open**, then **Accept answer** to close the card, or **Reject** with a follow-up |
 | A question | Type your answer and click **Send answer** |
 

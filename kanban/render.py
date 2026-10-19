@@ -14,7 +14,7 @@ import datetime
 import json
 import os
 
-from . import dispatch, lease, locks, model, scope, transitions, worktree
+from . import dispatch, lease, locks, model, pr, scope, transitions, worktree
 from .model import parse_ts
 
 COLUMNS = (
@@ -97,7 +97,7 @@ def _scan_transcript(path):
 
 
 def actions_for(card, blocked, dispatch_available, has_changes=True,
-                starting=False, violations=()):
+                starting=False, violations=(), pr_url=None, pr_checked=False):
     """Which buttons this card may show. The only source of truth for the UI."""
     status = card.get("status")
     tier = card.get("tier")
@@ -219,14 +219,26 @@ def actions_for(card, blocked, dispatch_available, has_changes=True,
             ),
             "disabled": False,
         }
+        confirm = []
+        if pr_url:
+            approve["hint"] = (
+                "Merge the pull request on GitHub, then approve to move the "
+                "card to Done." + (" Approve checks that it was merged." if pr_checked else "")
+            )
+            if not pr_checked:
+                # Without gh nobody can check, so ask the one person who knows.
+                confirm.append("Approving marks the card Done. Have you merged "
+                               "its pull request on GitHub?")
         if violations:
-            approve["confirm"] = (
+            confirm.insert(0, (
                 "This branch changes %d path(s) the card must not touch: %s. "
                 "Approve anyway?" % (
                     len(violations),
                     ", ".join(item["path"] for item in violations[:5]),
                 )
-            )
+            ))
+        if confirm:
+            approve["confirm"] = "\n\n".join(confirm)
         return [
             approve,
             {
@@ -244,7 +256,7 @@ def actions_for(card, blocked, dispatch_available, has_changes=True,
     return []
 
 
-def asking(card, has_changes):
+def asking(card, has_changes, pr_url=None):
     """What, if anything, this card needs from the human -- in one sentence."""
     if card.get("status") != "needs_review":
         return ""
@@ -254,6 +266,9 @@ def asking(card, has_changes):
     if reason == "plan":
         return ("The agent wants your OK on its plan before it starts. Approve to "
                 "let it go ahead, or reject with what to change.")
+    if has_changes and pr_url:
+        return ("The agent finished and opened a pull request. Review and merge "
+                "it on GitHub, then approve here, or reject with what is wrong.")
     if has_changes:
         return ("The agent finished and changed files. Check the changes, then "
                 "approve them or reject with what is wrong.")
@@ -299,6 +314,11 @@ def card_view(board, card_id, card, body, now, config, dispatch_available):
             for path, pattern in report[scope.DENIED]
         ]
 
+    # Only ever link to GitHub over https: this lands in an href.
+    pr_url = artifacts.get("pr")
+    pr_url = pr_url if str(pr_url or "").startswith("https://") else None
+    pr_checked = pr.is_pull_url(pr_url) and pr.gh_bin() is not None
+
     return {
         "id": card_id,
         "title": card.get("title") or "(untitled)",
@@ -336,11 +356,13 @@ def card_view(board, card_id, card, body, now, config, dispatch_available):
         "log": sections.get(model.SECTION_LOG, ""),
         "diffstat": diff,
         "scope_violations": violations,
+        "pr": pr_url,
         "agent_result": stats.get("result", ""),
-        "asking": asking(card, bool(diff)),
+        "asking": asking(card, bool(diff), pr_url),
         "actions": actions_for(
             card, blocked, dispatch_available, has_changes=bool(diff),
             starting=starting, violations=violations,
+            pr_url=pr_url, pr_checked=pr_checked,
         ),
     }
 

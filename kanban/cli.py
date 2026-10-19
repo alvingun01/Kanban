@@ -11,6 +11,7 @@ agent would want to parse the result.
 import argparse
 import json
 import os
+import re
 import sys
 
 from . import lease, locks, model, scaffold, scope, store, transitions, worktree
@@ -572,6 +573,18 @@ def cmd_doctor(args):
     _print("git        %s"
            % ("repo, base branch %s" % config.get("base_branch")
               if worktree.is_repo(board.root) else "not a git repo (no worktrees)"))
+    from . import pr
+
+    remote = config.get("remote")
+    url = worktree.remote_url(board.root, remote)
+    if url:
+        _print("PRs        on submit, push to %s (%s), then %s" % (
+            remote, re.sub(r"//[^/@]+@", "//", url),  # never print a token
+            "open a PR with gh" if pr.gh_bin() else
+            "link GitHub's compare page (install gh to open PRs automatically)",
+        ))
+    else:
+        _print("PRs        off (no %r remote) -- approve just closes cards" % remote)
     if os.environ.get("KANBAN_HUMAN"):
         _print()
         _print("WARNING    KANBAN_HUMAN is set in this environment.")
